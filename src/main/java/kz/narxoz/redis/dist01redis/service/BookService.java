@@ -5,6 +5,9 @@ import kz.narxoz.redis.dist01redis.repository.BookRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 
@@ -15,6 +18,7 @@ public class BookService {
     private final BookRepository bookRepository;
     private final CacheService cacheService;
 
+    private final Map<Long, Integer> popularBooks = new HashMap<>();
 
     public Book getBook(Long id) {
         final String cacheKey = "book:" + id;
@@ -22,29 +26,52 @@ public class BookService {
         Book cachedBook = (Book) cacheService.getCachedObject(cacheKey);
 
         if (cachedBook != null) {
+            incrementPopularity(id);
             return cachedBook;
         }
 
-        Optional<Book> product = bookRepository.findById(id);
-        product.ifPresent(p -> cacheService.cacheObject(cacheKey, p, 1, TimeUnit.MINUTES));
+        Optional<Book> book = bookRepository.findById(id);
+        book.ifPresent(b -> {
+            cacheService.cacheObject(cacheKey, b, 10, TimeUnit.MINUTES);
+            incrementPopularity(id);
+        });
 
-        return product.orElse(null);
+        return book.orElse(null);
     }
+
+//    public void updateBook(Book book) {
+//        bookRepository.save(book);
+//        cacheService.cacheObject("book:" + book.getId(), book, 10, TimeUnit.MINUTES);
+//    }
 
     public void updateBook(Book book) {
-        // Обновляем продукт в базе данных
-        bookRepository.save(book);
-
-        // Обновляем продукт в кэше
-        cacheService.cacheObject("book:" + book.getId(), book, 1, TimeUnit.MINUTES);
+        Optional<Book> existingBook = bookRepository.findById(book.getId());
+        if (existingBook.isPresent()) {
+            bookRepository.save(book);
+            cacheService.cacheObject("book:" + book.getId(), book, 10, TimeUnit.MINUTES);
+        } else {
+            throw new IllegalArgumentException("Книга с ID " + book.getId() + " не найдена!");
+        }
     }
+
 
     public void deleteBook(Long bookId) {
-        // Удаляем продукт из базы данных
         bookRepository.deleteById(bookId);
-
-        // Удаляем продукт из кэша
         cacheService.deleteCachedObject("book:" + bookId);
     }
-}
 
+    public List<Book> getPopularBooks() {
+        List<Long> bookIds = popularBooks.entrySet()
+                .stream()
+                .sorted(Map.Entry.<Long, Integer>comparingByValue().reversed())
+                .limit(5)
+                .map(Map.Entry::getKey)
+                .toList();
+
+        return bookRepository.findAllById(bookIds);
+    }
+
+    private void incrementPopularity(Long id) {
+        popularBooks.put(id, popularBooks.getOrDefault(id, 0) + 1);
+    }
+}

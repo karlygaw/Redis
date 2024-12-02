@@ -21,5 +21,8 @@ public class Book implements Serializable {
     private String author;
     private Double price;
     private String genre;
+
+    @Lob
+    @Column(columnDefinition = "TEXT")
     private String description;
 }
